@@ -1,4 +1,6 @@
 #include <Arduino.h>
+#include "mbedtls/entropy.h"
+#include "mbedtls/ctr_drbg.h"
 
 // Using pin 36 for ECG sensor
 #define ECG_PIN 36  // ESP32 ADC pin
@@ -17,6 +19,18 @@ State current_state = COLLECTING;
 unsigned long last_reading_time = 0;
 const int sampling_interval = 10; // 10ms = 100Hz sampling rate
 
+// Variable definition for AES key generation
+mbedtls_ctr_drbg_context ctr_drbg;
+mbedtls_entropy_context entropy;
+unsigned char key[32];
+
+// The personalization string needs to unique for the project
+const char *pers = "ecg_encryption_key_generation";
+int ret;
+
+// Function prototypes
+bool generateAESkey();
+
 void setup() {
   Serial.begin(115200);
   Serial.println("Starting ECG Monitoring System...");
@@ -28,6 +42,11 @@ void setup() {
   for (int i = 0; i < 187; i++) {
     ecg_readings[i] = 0;
     ecg_normalized[i] = 0;
+  }
+  
+  // Generate encryption key
+  if(!generateAESkey()) {
+    Serial.println("Key generation failed!");
   }
 }
 
@@ -55,7 +74,7 @@ void encryptAndSendData() {
   // TODO: Implement AES encryption for Phase 1
   // Will need to encrypt this data before sending to AWS
   
-  // For now, just printing  normalized data
+  // For now, just printing normalized data
   Serial.println("ECG Data Batch:");
   Serial.print("[");
   for (int i = 0; i < 187; i++) {
@@ -68,6 +87,33 @@ void encryptAndSendData() {
   
   // TODO: Connect to AWS IoT Core and send this data
   // Need to set up AWS credentials and MQTT client
+}
+
+bool generateAESkey() {
+  // Initialize the random number generator
+  mbedtls_entropy_init(&entropy);
+  mbedtls_ctr_drbg_init(&ctr_drbg);
+  
+  // Seed the random number generator
+  if((ret = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy,
+                                (unsigned char*)pers, strlen(pers))) != 0) {
+    Serial.printf("Failed to seed random generator: -0x%04x\n", -ret);
+    return false;
+  }
+  
+  // Generate the random key
+  if((ret = mbedtls_ctr_drbg_random(&ctr_drbg, key, 32)) != 0) {
+    Serial.printf("Failed to generate random key: -0x%04x\n", -ret);
+    return false;
+  }
+  
+  Serial.println("AES-256 key generated successfully");
+  Serial.print("Key: ");
+  for (int i = 0; i < 32; i++) {
+    Serial.printf("%02X ", key[i]);
+  }
+  Serial.println();
+  return true;
 }
 
 void loop() {
