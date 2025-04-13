@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "mbedtls/entropy.h"
 #include "mbedtls/ctr_drbg.h"
+#include "mbedtls/aes.h"
 
 // Using pin 36 for ECG sensor
 #define ECG_PIN 36  // ESP32 ADC pin
@@ -28,8 +29,22 @@ unsigned char key[32];
 const char *pers = "ecg_encryption_key_generation";
 int ret;
 
+// Variable definition for AES Encryption
+// AES context structure that will hold all the internal state needed for AES encryption/decryption operations. 
+mbedtls_aes_context aes;
+
+unsigned char iv[16];
+unsigned char input[800];  // Increased to handle 187 floats (748 bytes) + padding
+unsigned char output[800]; // Same size as input
+size_t input_len = 0;
+size_t output_len = 0;
+
 // Function prototypes
 bool generateAESkey();
+bool generateRandomIV();
+void float_to_bytes(float arr[], unsigned char bytes[]);
+void normalizeECGData();
+void encryptAndSendData();
 
 void setup() {
   Serial.begin(115200);
@@ -71,8 +86,18 @@ void normalizeECGData() {
 }
 
 void encryptAndSendData() {
-  // TODO: Implement AES encryption for Phase 1
-  // Will need to encrypt this data before sending to AWS
+  // Generate a new random IV for this encryption operation
+  if (!generateRandomIV()) {
+    Serial.println("IV generation failed!");
+    return;
+  }
+  
+  // Convert normalized ECG data to bytes
+  float_to_bytes(ecg_normalized, input);
+  
+  // TODO: Implement PKCS#7 padding here
+  
+  // TODO: Implement AES-CBC encryption here
   
   // For now, just printing normalized data
   Serial.println("ECG Data Batch:");
@@ -114,6 +139,34 @@ bool generateAESkey() {
   }
   Serial.println();
   return true;
+}
+
+bool generateRandomIV() {
+  // Generate a random IV (initialization vector) for AES encryption
+  if((ret = mbedtls_ctr_drbg_random(&ctr_drbg, iv, 16)) != 0) {
+    Serial.printf("Failed to generate random IV: -0x%04x\n", -ret);
+    return false;
+  }
+
+  Serial.println("IV generated successfully");
+  Serial.print("IV: ");
+  for (int i = 0; i < sizeof(iv); i++) {
+    Serial.printf("%02X ", iv[i]);
+  }
+  Serial.println();
+  return true;
+}
+
+void float_to_bytes(float arr[], unsigned char bytes[]) {
+  input_len = 187 * sizeof(float); // Calculate the size of the input array in bytes
+
+  // This copies the float array to the byte array. The size of the byte array is equal to the size of the float array in bytes.
+  // The memcpy function is used to copy the data from the float array to the byte array.
+  memcpy(bytes, arr, input_len);
+
+  Serial.println("Converted float array to bytes");
+  Serial.print("Byte length: ");
+  Serial.println(input_len);
 }
 
 void loop() {
