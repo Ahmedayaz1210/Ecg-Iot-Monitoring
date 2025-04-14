@@ -36,6 +36,7 @@ mbedtls_aes_context aes;
 unsigned char iv[16];
 unsigned char input[800];  // Increased to handle 187 floats (748 bytes) + padding
 unsigned char output[800]; // Same size as input
+unsigned char encrypted_output[800]; // Buffer to hold the encrypted data
 size_t input_len = 0;
 size_t output_len = 0;
 
@@ -46,6 +47,7 @@ void float_to_bytes(float arr[], unsigned char bytes[]);
 void normalizeECGData();
 void encryptAndSendData();
 size_t apply_pkcs7_padding(unsigned char *input, size_t input_len, unsigned char *output);
+void encrypt_data(int padded_len);
 
 void setup() {
   Serial.begin(115200);
@@ -101,7 +103,8 @@ void encryptAndSendData() {
    Serial.print("After padding, data length: ");
    Serial.println(output_len);
   
-  // TODO: Implement AES-CBC encryption here
+  // Encrypt the data
+  encrypt_data(output_len);
   
   // For now, just printing normalized data
   Serial.println("ECG Data Batch:");
@@ -191,6 +194,32 @@ size_t apply_pkcs7_padding(unsigned char *input, size_t input_len, unsigned char
   Serial.println("PKCS#7 padding applied");
   
   return input_len + padding_len;
+}
+
+
+void encrypt_data(int padded_len) {
+  // Initialize the AES context
+  mbedtls_aes_init(&aes);
+
+  // Set the AES encryption key
+  mbedtls_aes_setkey_enc(&aes, key, 256);
+
+  // Encrypt the data using AES-CBC
+  if (mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_ENCRYPT, padded_len, iv, output, encrypted_output) != 0) {
+    Serial.println("Encryption failed!");
+    return;
+  }
+
+  Serial.println("Encryption successful!");
+  Serial.println("Encrypted data:");
+  for (size_t i = 0; i < padded_len; i++) {
+    Serial.print(encrypted_output[i], HEX);
+    Serial.print(" ");
+  }
+  Serial.println();
+
+  // Free the AES context when done
+  mbedtls_aes_free(&aes);
 }
 
 void loop() {
