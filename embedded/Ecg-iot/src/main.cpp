@@ -45,6 +45,7 @@ bool generateRandomIV();
 void float_to_bytes(float arr[], unsigned char bytes[]);
 void normalizeECGData();
 void encryptAndSendData();
+size_t apply_pkcs7_padding(unsigned char *input, size_t input_len, unsigned char *output);
 
 void setup() {
   Serial.begin(115200);
@@ -95,7 +96,10 @@ void encryptAndSendData() {
   // Convert normalized ECG data to bytes
   float_to_bytes(ecg_normalized, input);
   
-  // TODO: Implement PKCS#7 padding here
+   // Apply PKCS#7 padding
+   output_len = apply_pkcs7_padding(input, input_len, output);
+   Serial.print("After padding, data length: ");
+   Serial.println(output_len);
   
   // TODO: Implement AES-CBC encryption here
   
@@ -167,6 +171,26 @@ void float_to_bytes(float arr[], unsigned char bytes[]) {
   Serial.println("Converted float array to bytes");
   Serial.print("Byte length: ");
   Serial.println(input_len);
+}
+
+size_t apply_pkcs7_padding(unsigned char *input, size_t input_len, unsigned char *output) {
+  // Calculate the number of padding bytes needed
+  size_t padding_len = 16 - (input_len % 16);
+  if (padding_len == 0) {
+    padding_len = 16;
+  }
+
+  // Copy the original input to the output buffer
+  memcpy(output, input, input_len);
+
+  // Add padding bytes to the output buffer
+  for (size_t i = input_len; i < input_len + padding_len; i++) {
+    output[i] = padding_len;
+  }
+
+  Serial.println("PKCS#7 padding applied");
+  
+  return input_len + padding_len;
 }
 
 void loop() {
