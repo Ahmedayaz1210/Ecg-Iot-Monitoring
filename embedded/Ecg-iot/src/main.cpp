@@ -37,6 +37,9 @@ unsigned char iv[16];
 unsigned char input[800];  // Increased to handle 187 floats (748 bytes) + padding
 unsigned char output[800]; // Same size as input
 unsigned char encrypted_output[800]; // Buffer to hold the encrypted data
+unsigned char encryption_IV_data[800]; // Buffer to hold IV (16 bytes) + encrypted data
+
+
 size_t input_len = 0;
 size_t output_len = 0;
 
@@ -48,6 +51,7 @@ void normalizeECGData();
 void encryptAndSendData();
 size_t apply_pkcs7_padding(unsigned char *input, size_t input_len, unsigned char *output);
 void encrypt_data(int padded_len);
+void package_data(unsigned char *encrypted_output, unsigned char *encryption_IV_data, int padded_len);
 
 void setup() {
   Serial.begin(115200);
@@ -87,7 +91,6 @@ void normalizeECGData() {
     ecg_normalized[i] = (ecg_readings[i] - min_value) / (max_value - min_value);
   }
 }
-
 void encryptAndSendData() {
   // Generate a new random IV for this encryption operation
   if (!generateRandomIV()) {
@@ -98,13 +101,16 @@ void encryptAndSendData() {
   // Convert normalized ECG data to bytes
   float_to_bytes(ecg_normalized, input);
   
-   // Apply PKCS#7 padding
-   output_len = apply_pkcs7_padding(input, input_len, output);
-   Serial.print("After padding, data length: ");
-   Serial.println(output_len);
+  // Apply PKCS#7 padding
+  output_len = apply_pkcs7_padding(input, input_len, output);
+  Serial.print("After padding, data length: ");
+  Serial.println(output_len);
   
   // Encrypt the data
   encrypt_data(output_len);
+  
+  // Package the IV with the encrypted data
+  package_data(encrypted_output, encryption_IV_data, output_len);
   
   // For now, just printing normalized data
   Serial.println("ECG Data Batch:");
@@ -154,6 +160,9 @@ bool generateRandomIV() {
     Serial.printf("Failed to generate random IV: -0x%04x\n", -ret);
     return false;
   }
+
+  // Immediately save the IV to the beginning of the package buffer
+  memcpy(encryption_IV_data, iv, 16);
 
   Serial.println("IV generated successfully");
   Serial.print("IV: ");
@@ -220,6 +229,14 @@ void encrypt_data(int padded_len) {
 
   // Free the AES context when done
   mbedtls_aes_free(&aes);
+}
+
+
+void package_data(unsigned char *encrypted_output, unsigned char *encryption_IV_data, int padded_len) {
+  // Copy the encrypted data to the encryption_IV_data buffer after the IV
+  memcpy(encryption_IV_data + 16, encrypted_output, padded_len);
+
+  Serial.println("Data packaged with IV for transmission");
 }
 
 void loop() {
