@@ -286,3 +286,67 @@ void loop() {
       break;
   }
 }
+
+
+/*
+
+void decrypt_data(unsigned char *encryption_IV_data, size_t data_length, unsigned char *decrypted_output) {
+  // Starting with retrieving the IV from the first 16 bytes of the data
+  unsigned char extracted_iv[16];
+  memcpy(extracted_iv, encryption_IV_data, 16); // Copy the first 16 bytes to the extracted IV
+
+  // Initialize the AES context
+  mbedtls_aes_init(&aes);
+
+  // Set the AES decryption key
+  mbedtls_aes_setkey_dec(&aes, key, 256);
+
+  // Decrypt the data using AES-CBC
+  if (mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_DECRYPT, data_length - 16, extracted_iv, encryption_IV_data + 16, decrypted_output) != 0) {
+    Serial.println("Decryption failed!");
+    return;
+  }
+
+  
+  Serial.println("Decrypted data:");
+  for (size_t i = 0; i < data_length - 16; i++) {
+    Serial.print(decrypted_output[i], HEX);
+    Serial.print(" ");
+  }
+  Serial.println();
+
+  // Remove PKCS7 padding
+  size_t encrypted_data_length = data_length - 16; // 768 - 16 = 752
+  // The last byte of the decrypted output contains the padding value
+  size_t padding_value = decrypted_output[encrypted_data_length - 1]; // decrypted_output[752 - 1] = decrypted_output[751] 
+
+  // Verify all padded values are correct
+  bool valid_padding = true;
+  for (int i = 0; i < padding_value; i++) {
+    if (decrypted_output[encrypted_data_length - 1 - i] != padding_value) {
+      valid_padding = false;
+      break;
+    }
+  }
+
+  if (valid_padding) {
+    // Calculate original data length by removing padding
+    size_t original_length = encrypted_data_length - padding_value;
+    Serial.print("Original data length: ");
+    Serial.println(original_length);
+    
+    // Bytes to float conversion
+    float decrypted_float[187]; 
+    memcpy(decrypted_float, decrypted_output, original_length); 
+    
+    Serial.println("Decrypted float data:");
+    for (size_t i = 0; i < 187; i++) { 
+      Serial.print(decrypted_float[i], 4);
+      Serial.print(", ");
+    }
+    Serial.println();
+  }
+  else {
+    Serial.println("Invalid padding detected!");
+  }
+*/
