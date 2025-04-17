@@ -2,9 +2,16 @@
 #include "mbedtls/entropy.h"
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/aes.h"
+#include <Preferences.h>
 
 // Using pin 36 for ECG sensor
 #define ECG_PIN 36  // ESP32 ADC pin
+
+#define RO_MODE true
+#define RW_MODE false
+
+// Preferences library to store the encryption key in non-volatile storage
+Preferences encryptionKeyPref;
 
 // Arrays for ECG data storage
 // Reason why it's 187 is because the dataset model is trained on has 187 samples per batch
@@ -52,6 +59,8 @@ void encryptAndSendData();
 size_t apply_pkcs7_padding(unsigned char *input, size_t input_len, unsigned char *output);
 void encrypt_data(int padded_len);
 void package_data(unsigned char *encrypted_output, unsigned char *encryption_IV_data, int padded_len);
+bool loadKey();
+void storeKey();
 
 void setup() {
   Serial.begin(115200);
@@ -66,9 +75,24 @@ void setup() {
     ecg_normalized[i] = 0;
   }
   
-  // Generate encryption key
-  if(!generateAESkey()) {
-    Serial.println("Key generation failed!");
+  // Initialize the random number generator
+  mbedtls_entropy_init(&entropy);
+  mbedtls_ctr_drbg_init(&ctr_drbg);
+  
+  // Seed the random number generator
+  if((ret = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy,
+                                (unsigned char*)pers, strlen(pers))) != 0) {
+    Serial.printf("Failed to seed random generator: -0x%04x\n", -ret);
+    return;
+  }
+  
+  // Try to load the key from storage, generate a new one if none exists
+  if (!loadKey()) {
+    if (!generateAESkey()) {
+      Serial.println("Key generation failed!");
+      return;
+    }
+    storeKey(); // Store the newly generated key
   }
 }
 
@@ -128,18 +152,7 @@ void encryptAndSendData() {
 }
 
 bool generateAESkey() {
-  // Initialize the random number generator
-  mbedtls_entropy_init(&entropy);
-  mbedtls_ctr_drbg_init(&ctr_drbg);
-  
-  // Seed the random number generator
-  if((ret = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy,
-                                (unsigned char*)pers, strlen(pers))) != 0) {
-    Serial.printf("Failed to seed random generator: -0x%04x\n", -ret);
-    return false;
-  }
-  
-  // Generate the random key
+  // Generate the random key - RNG is already initialized in setup()
   if((ret = mbedtls_ctr_drbg_random(&ctr_drbg, key, 32)) != 0) {
     Serial.printf("Failed to generate random key: -0x%04x\n", -ret);
     return false;
@@ -237,6 +250,51 @@ void package_data(unsigned char *encrypted_output, unsigned char *encryption_IV_
   memcpy(encryption_IV_data + 16, encrypted_output, padded_len);
 
   Serial.println("Data packaged with IV for transmission");
+}
+
+// Function to load AES Encryption key from non-volatile storage
+bool loadKey() {
+  encryptionKeyPref.begin("encryption_key", RO_MODE); // Open the preferences with read-only access
+  
+  if (!encryptionKeyPref.isKey("key")) {
+    Serial.println("No encryption key found in storage. Will generate a new one.");
+    encryptionKeyPref.end(); // Close the preferences
+    return false;
+  }
+  
+  size_t keySize = encryptionKeyPref.getBytesLength("key"); // Get the size of the stored key
+  if (keySize != sizeof(key)) {
+    Serial.println("Key size mismatch! Expected 32 bytes, found " + String(keySize) + " bytes.");
+    encryptionKeyPref.end(); // Close the preferences
+    return false;
+  }
+  
+  encryptionKeyPref.getBytes("key", key, sizeof(key)); // Load the key from non-volatile storage
+  encryptionKeyPref.end(); // Close the preferences
+  
+  Serial.println("Key loaded successfully.");
+  Serial.print("Loaded Key: ");
+  for (int i = 0; i < sizeof(key); i++) {
+    Serial.printf("%02X ", key[i]);
+  }
+  Serial.println();
+  
+  return true;
+}
+
+// Function to store AES Encryption key in non-volatile storage so it can be used later and remain persistent across reboots
+void storeKey() {
+  encryptionKeyPref.begin("encryption_key", RW_MODE); // Open the preferences with read-write access
+  encryptionKeyPref.clear(); // Clear any existing data in the preferences
+  encryptionKeyPref.putBytes("key", key, sizeof(key)); // Store the key in non-volatile storage
+  encryptionKeyPref.end(); // Close the preferences
+  
+  Serial.println("Key stored successfully.");
+  Serial.print("Stored Key: ");
+  for (int i = 0; i < sizeof(key); i++) {
+    Serial.printf("%02X ", key[i]);
+  }
+  Serial.println();
 }
 
 void loop() {
