@@ -3,12 +3,28 @@
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/aes.h"
 #include <Preferences.h>
+#include "secrets.h"  // Add this include for AWS credentials
+#include <WiFiClientSecure.h>  // Add for WiFi and AWS connection
+#include <PubSubClient.h>  // Add for MQTT
+#include <ArduinoJson.h>  // Add for JSON processing
 
 // Using pin 36 for ECG sensor
 #define ECG_PIN 36  // ESP32 ADC pin
 
 #define RO_MODE true
 #define RW_MODE false
+#define MQTT_MAX_PACKET_SIZE 512  // Add buffer size for MQTT
+
+// MQTT topics
+#define AWS_IOT_PUBLISH_TOPIC "ecg/data"
+#define AWS_IOT_SUBSCRIBE_TOPIC "ecg/results"
+
+// Creating secure WiFi and MQTT clients
+WiFiClientSecure wifiClient = WiFiClientSecure();
+PubSubClient mqttClient(wifiClient);
+
+// Session ID to track messages
+String session_id;
 
 // Preferences library to store the encryption key in non-volatile storage
 Preferences encryptionKeyPref;
@@ -46,7 +62,6 @@ unsigned char output[800]; // Same size as input
 unsigned char encrypted_output[800]; // Buffer to hold the encrypted data
 unsigned char encryption_IV_data[800]; // Buffer to hold IV (16 bytes) + encrypted data
 
-
 size_t input_len = 0;
 size_t output_len = 0;
 
@@ -61,6 +76,12 @@ void encrypt_data(int padded_len);
 void package_data(unsigned char *encrypted_output, unsigned char *encryption_IV_data, int padded_len);
 bool loadKey();
 void storeKey();
+void connectToWiFi();
+void connectToAWS();
+void publishIV(unsigned char* iv);
+void publishEncryptedDataChunks(unsigned char* encrypted_data, size_t data_length);
+bool ensureConnected();
+void messageCallback(char* topic, byte* payload, unsigned int length);
 
 void setup() {
   Serial.begin(115200);
@@ -94,6 +115,13 @@ void setup() {
     }
     storeKey(); // Store the newly generated key
   }
+
+  // Generate a unique session ID
+  session_id = String(random(0xffff), HEX) + String(millis(), HEX);
+  
+  // Connect to WiFi and AWS
+  connectToWiFi();
+  connectToAWS();
 }
 
 void normalizeECGData() {
@@ -115,6 +143,7 @@ void normalizeECGData() {
     ecg_normalized[i] = (ecg_readings[i] - min_value) / (max_value - min_value);
   }
 }
+
 void encryptAndSendData() {
   // Generate a new random IV for this encryption operation
   if (!generateRandomIV()) {
@@ -136,7 +165,7 @@ void encryptAndSendData() {
   // Package the IV with the encrypted data
   package_data(encrypted_output, encryption_IV_data, output_len);
   
-  // For now, just printing normalized data
+  // Print normalized data for debugging
   Serial.println("ECG Data Batch:");
   Serial.print("[");
   for (int i = 0; i < 187; i++) {
@@ -147,8 +176,12 @@ void encryptAndSendData() {
   }
   Serial.println("]");
   
-  // TODO: Connect to AWS IoT Core and send this data
-  // Need to set up AWS credentials and MQTT client
+  // Send data to AWS IoT Core
+  // First, publish IV separately
+  publishIV(encryption_IV_data);
+  
+  // Then, publish encrypted data in chunks
+  publishEncryptedDataChunks(encryption_IV_data + 16, output_len);
 }
 
 bool generateAESkey() {
@@ -189,8 +222,7 @@ bool generateRandomIV() {
 void float_to_bytes(float arr[], unsigned char bytes[]) {
   input_len = 187 * sizeof(float); // Calculate the size of the input array in bytes
 
-  // This copies the float array to the byte array. The size of the byte array is equal to the size of the float array in bytes.
-  // The memcpy function is used to copy the data from the float array to the byte array.
+  // Copy the float array to the byte array
   memcpy(bytes, arr, input_len);
 
   Serial.println("Converted float array to bytes");
@@ -218,7 +250,6 @@ size_t apply_pkcs7_padding(unsigned char *input, size_t input_len, unsigned char
   return input_len + padding_len;
 }
 
-
 void encrypt_data(int padded_len) {
   // Initialize the AES context
   mbedtls_aes_init(&aes);
@@ -233,17 +264,10 @@ void encrypt_data(int padded_len) {
   }
 
   Serial.println("Encryption successful!");
-  Serial.println("Encrypted data:");
-  for (size_t i = 0; i < padded_len; i++) {
-    Serial.print(encrypted_output[i], HEX);
-    Serial.print(" ");
-  }
-  Serial.println();
-
+  
   // Free the AES context when done
   mbedtls_aes_free(&aes);
 }
-
 
 void package_data(unsigned char *encrypted_output, unsigned char *encryption_IV_data, int padded_len) {
   // Copy the encrypted data to the encryption_IV_data buffer after the IV
@@ -282,7 +306,7 @@ bool loadKey() {
   return true;
 }
 
-// Function to store AES Encryption key in non-volatile storage so it can be used later and remain persistent across reboots
+// Function to store AES Encryption key in non-volatile storage
 void storeKey() {
   encryptionKeyPref.begin("encryption_key", RW_MODE); // Open the preferences with read-write access
   encryptionKeyPref.clear(); // Clear any existing data in the preferences
@@ -295,6 +319,212 @@ void storeKey() {
     Serial.printf("%02X ", key[i]);
   }
   Serial.println();
+}
+
+// Connect to WiFi
+void connectToWiFi() {
+  Serial.print("Connecting to WiFi");
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  
+  Serial.println("\nConnected to WiFi");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+// Callback for received MQTT messages
+void messageCallback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message received on topic: ");
+  Serial.println(topic);
+  
+  // Parse the payload if needed
+  char message[length + 1];
+  memcpy(message, payload, length);
+  message[length] = '\0';
+  Serial.println(message);
+  
+  // You can add logic here to process commands or results
+}
+
+// Connect to AWS IoT
+void connectToAWS() {
+  // Configure certificates
+  wifiClient.setCACert(AWS_CERT_CA);
+  wifiClient.setCertificate(AWS_CERT_CRT);
+  wifiClient.setPrivateKey(AWS_CERT_PRIVATE);
+  
+  // Configure MQTT client
+  mqttClient.setServer(AWS_IOT_ENDPOINT, 8883);
+  mqttClient.setCallback(messageCallback);
+  
+  Serial.print("Connecting to AWS IoT Core... ");
+  
+  // Create a unique client ID
+  String clientId = "ESP32_ECG_Device-";
+  clientId += String(random(0xffff), HEX);
+  
+  while (!mqttClient.connected()) {
+    if (mqttClient.connect(clientId.c_str())) {
+      Serial.println("Connected!");
+      
+      // Subscribe to topics if needed
+      mqttClient.subscribe(AWS_IOT_SUBSCRIBE_TOPIC);
+    } else {
+      Serial.print("Failed, rc=");
+      Serial.print(mqttClient.state());
+      Serial.println(" Retrying in 5 seconds...");
+      delay(5000);
+    }
+  }
+}
+
+void publishIV(unsigned char* iv) {
+  // Create a JSON document
+  JsonDocument doc;
+  
+  // Add metadata
+  doc["device_id"] = "ESP32_ECG_Device";
+  doc["timestamp"] = millis();
+  doc["message_type"] = "iv";
+  doc["sample_id"] = "sample_1"; // could make this dynamic later
+  doc["session_id"] = session_id; // Add session ID to differentiate between IVs
+  
+  // Convert IV to hex string
+  char encoded_iv[33]; // 16 bytes = 32 hex chars + null terminator
+  for (int i = 0; i < 16; i++) {
+    sprintf(&encoded_iv[i * 2], "%02x", iv[i]);
+  }
+  encoded_iv[32] = '\0';
+  
+  doc["iv"] = encoded_iv;
+  
+  // Serialize JSON to string
+  char jsonBuffer[256];
+  serializeJson(doc, jsonBuffer);
+  
+  Serial.print("Publishing IV: ");
+  Serial.println(jsonBuffer);
+  
+  // Publish to AWS IoT
+  if (mqttClient.publish(AWS_IOT_PUBLISH_TOPIC, jsonBuffer)) {
+    Serial.println("IV published successfully");
+  } else {
+    Serial.print("Failed to publish IV, error code: ");
+    Serial.println(mqttClient.state());
+  }
+}
+
+bool ensureConnected() {
+  if (!mqttClient.connected()) {
+    Serial.println("MQTT connection lost, attempting to reconnect...");
+    
+    // Create a unique client ID
+    String clientId = "ESP32_ECG_Device-";
+    clientId += String(random(0xffff), HEX);
+    
+    // Try to reconnect with backoff
+    int attempts = 0;
+    while (!mqttClient.connected() && attempts < 3) {
+      attempts++;
+      Serial.print("Connection attempt ");
+      Serial.print(attempts);
+      Serial.print("... ");
+      
+      if (mqttClient.connect(clientId.c_str())) {
+        Serial.println("Connected!");
+        mqttClient.subscribe(AWS_IOT_SUBSCRIBE_TOPIC);
+        return true;
+      } else {
+        Serial.print("Failed, rc=");
+        Serial.println(mqttClient.state());
+        delay(1000 * attempts); // Backoff with increasing delay
+      }
+    }
+    
+    if (!mqttClient.connected()) {
+      Serial.println("Failed to reconnect after multiple attempts");
+      return false;
+    }
+  }
+  
+  return true;
+}
+
+void publishEncryptedDataChunks(unsigned char* encrypted_data, size_t data_length) {
+  // Define chunk size (smaller chunks for better reliability)
+  const size_t CHUNK_SIZE = 32;
+  
+  // Calculate number of chunks needed
+  int total_chunks = (data_length + CHUNK_SIZE - 1) / CHUNK_SIZE;
+  
+  Serial.print("Sending data in ");
+  Serial.print(total_chunks);
+  Serial.println(" chunks");
+  
+  // Send each chunk
+  for (int chunk_index = 0; chunk_index < total_chunks; chunk_index++) {
+    // Ensure MQTT is connected
+    if (!ensureConnected()) {
+      Serial.println("Cannot send chunk - connection failed");
+      delay(1000);
+      continue;
+    }
+    
+    // Calculate start position and length for this chunk
+    size_t chunk_start = chunk_index * CHUNK_SIZE;
+    size_t chunk_length = min(CHUNK_SIZE, data_length - chunk_start);
+    
+    // Create a JSON document
+    JsonDocument doc;
+    
+    // Add metadata
+    doc["device_id"] = "ESP32_ECG_Device";
+    doc["timestamp"] = millis();
+    doc["message_type"] = "data_chunk";
+    doc["sample_id"] = "sample_1";
+    doc["session_id"] = session_id; 
+    doc["chunk_index"] = chunk_index + 1;
+    doc["total_chunks"] = total_chunks;
+    
+    // Convert this chunk of data to hex string
+    char encoded_chunk[CHUNK_SIZE * 2 + 1];
+    for (size_t i = 0; i < chunk_length; i++) {
+      sprintf(&encoded_chunk[i * 2], "%02x", encrypted_data[chunk_start + i]);
+    }
+    encoded_chunk[chunk_length * 2] = '\0';
+    
+    doc["chunk_data"] = encoded_chunk;
+    
+    // Serialize JSON to string
+    char jsonBuffer[300]; // Buffer size
+    serializeJson(doc, jsonBuffer);
+    
+    Serial.print("Publishing chunk ");
+    Serial.print(chunk_index + 1);
+    Serial.print(" of ");
+    Serial.print(total_chunks);
+    Serial.println();
+    
+    // Publish to AWS IoT
+    if (mqttClient.publish(AWS_IOT_PUBLISH_TOPIC, jsonBuffer)) {
+      Serial.println("Chunk published successfully");
+    } else {
+      Serial.print("Failed to publish chunk, error code: ");
+      Serial.println(mqttClient.state());
+    }
+    
+    // Process incoming messages and maintain the connection
+    mqttClient.loop();
+    
+    // Increase delay between chunks
+    delay(800);
+  }
+  
+  Serial.println("All chunks sent");
 }
 
 void loop() {
@@ -327,7 +557,7 @@ void loop() {
       break;
       
     case SENDING:
-      // Send data (with encryption eventually)
+      // Send data with encryption to AWS IoT
       encryptAndSendData();
       Serial.println("Sent data. Taking a short break...");
       current_state = WAITING;
@@ -337,6 +567,13 @@ void loop() {
       // Quick break before next batch
       delay(1000);
       
+      // Keep MQTT connection alive
+      if (!mqttClient.loop()) {
+        if (ensureConnected()) {
+          Serial.println("MQTT connection maintained");
+        }
+      }
+      
       // Reset for next batch
       reading_index = 0;
       current_state = COLLECTING;
@@ -344,67 +581,3 @@ void loop() {
       break;
   }
 }
-
-
-/*
-
-void decrypt_data(unsigned char *encryption_IV_data, size_t data_length, unsigned char *decrypted_output) {
-  // Starting with retrieving the IV from the first 16 bytes of the data
-  unsigned char extracted_iv[16];
-  memcpy(extracted_iv, encryption_IV_data, 16); // Copy the first 16 bytes to the extracted IV
-
-  // Initialize the AES context
-  mbedtls_aes_init(&aes);
-
-  // Set the AES decryption key
-  mbedtls_aes_setkey_dec(&aes, key, 256);
-
-  // Decrypt the data using AES-CBC
-  if (mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_DECRYPT, data_length - 16, extracted_iv, encryption_IV_data + 16, decrypted_output) != 0) {
-    Serial.println("Decryption failed!");
-    return;
-  }
-
-  
-  Serial.println("Decrypted data:");
-  for (size_t i = 0; i < data_length - 16; i++) {
-    Serial.print(decrypted_output[i], HEX);
-    Serial.print(" ");
-  }
-  Serial.println();
-
-  // Remove PKCS7 padding
-  size_t encrypted_data_length = data_length - 16; // 768 - 16 = 752
-  // The last byte of the decrypted output contains the padding value
-  size_t padding_value = decrypted_output[encrypted_data_length - 1]; // decrypted_output[752 - 1] = decrypted_output[751] 
-
-  // Verify all padded values are correct
-  bool valid_padding = true;
-  for (int i = 0; i < padding_value; i++) {
-    if (decrypted_output[encrypted_data_length - 1 - i] != padding_value) {
-      valid_padding = false;
-      break;
-    }
-  }
-
-  if (valid_padding) {
-    // Calculate original data length by removing padding
-    size_t original_length = encrypted_data_length - padding_value;
-    Serial.print("Original data length: ");
-    Serial.println(original_length);
-    
-    // Bytes to float conversion
-    float decrypted_float[187]; 
-    memcpy(decrypted_float, decrypted_output, original_length); 
-    
-    Serial.println("Decrypted float data:");
-    for (size_t i = 0; i < 187; i++) { 
-      Serial.print(decrypted_float[i], 4);
-      Serial.print(", ");
-    }
-    Serial.println();
-  }
-  else {
-    Serial.println("Invalid padding detected!");
-  }
-*/
