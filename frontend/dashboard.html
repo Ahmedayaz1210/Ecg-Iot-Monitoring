@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ECG Analysis Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .input-section {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin-bottom: 30px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        input[type="text"] {
+            padding: 12px 20px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            width: 200px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .result-section {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .result-display {
+            font-size: 2rem;
+            font-weight: bold;
+            margin: 15px 0;
+            padding: 20px;
+            border-radius: 10px;
+            transition: all 0.3s;
+        }
+
+        .result-normal {
+            background: linear-gradient(45deg, #4CAF50, #8BC34A);
+            color: white;
+        }
+
+        .result-abnormal {
+            background: linear-gradient(45deg, #f44336, #ff5722);
+            color: white;
+        }
+
+        .result-pending {
+            background: linear-gradient(45deg, #ff9800, #ffc107);
+            color: white;
+        }
+
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .chart-container {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .chart-title {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            text-align: center;
+            color: #333;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 30px;
+        }
+
+        .metric-card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            text-align: center;
+        }
+
+        .metric-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #667eea;
+            margin: 10px 0;
+        }
+
+        .metric-label {
+            font-size: 1.1rem;
+            color: #666;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            color: white;
+            font-size: 1.2rem;
+        }
+
+        .error {
+            background: #f44336;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .input-group {
+                flex-direction: column;
+                width: 100%;
+            }
+
+            input[type="text"] {
+                width: 100%;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🫀 ECG Analysis Dashboard</h1>
+            <p>Real-time cardiac rhythm analysis and monitoring</p>
+        </div>
+
+        <div class="input-section">
+            <div class="input-group">
+                <input type="text" id="sessionId" placeholder="Enter Session ID" value="757f59b">
+                <button class="btn" onclick="analyzeECG()">Analyze ECG</button>
+            </div>
+        </div>
+
+        <div class="loading" id="loading">
+            🔄 Analyzing ECG data...
+        </div>
+
+        <div class="error" id="error"></div>
+
+        <div class="result-section" id="resultSection" style="display: none;">
+            <h2>Analysis Result</h2>
+            <div class="result-display" id="resultDisplay">
+                📊 ANALYSIS PENDING
+            </div>
+            <p id="confidence"></p>
+        </div>
+
+        <div class="charts-grid">
+            <div class="chart-container">
+                <h3 class="chart-title">📈 ECG Signal Waveform</h3>
+                <canvas id="ecgChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+
+        <div class="charts-grid">
+            <div class="chart-container">
+                <h3 class="chart-title">🔊 Frequency Analysis (FFT)</h3>
+                <canvas id="fftChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-value" id="heartRate">--</div>
+                <div class="metric-label">Heart Rate (BPM)</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="signalQuality">--</div>
+                <div class="metric-label">Signal Quality (%)</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="rPeaks">--</div>
+                <div class="metric-label">R-Peaks Detected</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="sessionInfo">--</div>
+                <div class="metric-label">Session ID</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ecgChart = null;
+        let fftChart = null;
+
+        // Initialize charts
+        function initCharts() {
+            const ecgCtx = document.getElementById('ecgChart').getContext('2d');
+            const fftCtx = document.getElementById('fftChart').getContext('2d');
+
+            ecgChart = new Chart(ecgCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'ECG Signal',
+                        data: [],
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Sample Point'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Amplitude'
+                            }
+                        }
+                    },
+                    elements: {
+                        point: {
+                            radius: 0
+                        }
+                    }
+                }
+            });
+
+            fftChart = new Chart(fftCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Frequency Magnitude',
+                        data: [],
+                        borderColor: '#764ba2',
+                        backgroundColor: 'rgba(118, 75, 162, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Frequency (Hz)'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Magnitude'
+                            }
+                        }
+                    },
+                    elements: {
+                        point: {
+                            radius: 0
+                        }
+                    }
+                }
+            });
+        }
+
+        // Calculate FFT using simple DFT
+        function calculateFFT(signal, sampleRate = 125) {
+            const N = signal.length;
+            const frequencies = [];
+            const magnitudes = [];
+            
+            // Only calculate for positive frequencies up to Nyquist
+            for (let k = 0; k < N/2; k++) {
+                const freq = k * sampleRate / N;
+                let realPart = 0;
+                let imagPart = 0;
+                
+                for (let n = 0; n < N; n++) {
+                    const angle = -2 * Math.PI * k * n / N;
+                    realPart += signal[n] * Math.cos(angle);
+                    imagPart += signal[n] * Math.sin(angle);
+                }
+                
+                const magnitude = Math.sqrt(realPart * realPart + imagPart * imagPart);
+                frequencies.push(freq);
+                magnitudes.push(magnitude);
+            }
+            
+            return { frequencies, magnitudes };
+        }
+
+        // Detect R-peaks for heart rate calculation
+        function detectRPeaks(signal, threshold = 0.6) {
+            const peaks = [];
+            const maxVal = Math.max(...signal);
+            const minVal = Math.min(...signal);
+            const range = maxVal - minVal;
+            const peakThreshold = minVal + range * threshold;
+            
+            for (let i = 1; i < signal.length - 1; i++) {
+                if (signal[i] > signal[i-1] && 
+                    signal[i] > signal[i+1] && 
+                    signal[i] > peakThreshold) {
+                    // Check if this peak is far enough from the last one
+                    if (peaks.length === 0 || i - peaks[peaks.length - 1] > 20) {
+                        peaks.push(i);
+                    }
+                }
+            }
+            
+            return peaks;
+        }
+
+        // Calculate metrics
+        function calculateMetrics(signal, sessionId) {
+            const rPeaks = detectRPeaks(signal);
+            const sampleRate = 125; // Hz
+            const signalDuration = signal.length / sampleRate; // seconds
+            
+            // Heart rate calculation
+            const heartRate = rPeaks.length > 1 ? 
+                Math.round((rPeaks.length - 1) * 60 / signalDuration) : 0;
+            
+            // Signal quality (simplified - based on signal-to-noise ratio)
+            const mean = signal.reduce((a, b) => a + b, 0) / signal.length;
+            const variance = signal.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / signal.length;
+            const signalQuality = Math.min(100, Math.round(Math.sqrt(variance) * 10));
+            
+            return {
+                heartRate,
+                signalQuality,
+                rPeaks: rPeaks.length,
+                sessionId
+            };
+        }
+
+        // Update charts and metrics
+        function updateDashboard(ecgData, sessionId) {
+            // Update ECG chart
+            const timePoints = Array.from({length: ecgData.length}, (_, i) => i);
+            ecgChart.data.labels = timePoints;
+            ecgChart.data.datasets[0].data = ecgData;
+            ecgChart.update();
+
+            // Calculate and update FFT
+            const fftResult = calculateFFT(ecgData);
+            // Limit to 0-50Hz for better visualization
+            const maxFreqIndex = fftResult.frequencies.findIndex(f => f > 50);
+            const limitedFreqs = fftResult.frequencies.slice(0, maxFreqIndex);
+            const limitedMags = fftResult.magnitudes.slice(0, maxFreqIndex);
+            
+            fftChart.data.labels = limitedFreqs.map(f => f.toFixed(1));
+            fftChart.data.datasets[0].data = limitedMags;
+            fftChart.update();
+
+            // Calculate and display metrics
+            const metrics = calculateMetrics(ecgData, sessionId);
+            document.getElementById('heartRate').textContent = metrics.heartRate;
+            document.getElementById('signalQuality').textContent = metrics.signalQuality;
+            document.getElementById('rPeaks').textContent = metrics.rPeaks;
+            document.getElementById('sessionInfo').textContent = sessionId;
+
+            // Show result section
+            document.getElementById('resultSection').style.display = 'block';
+            
+            // For now, show analysis pending (will be replaced with ML prediction)
+            const resultDisplay = document.getElementById('resultDisplay');
+            resultDisplay.textContent = '📊 ANALYSIS PENDING';
+            resultDisplay.className = 'result-display result-pending';
+            
+            document.getElementById('confidence').textContent = 
+                'ML model integration in progress. Showing signal analysis only.';
+        }
+
+        // Main analysis function
+        async function analyzeECG() {
+            const sessionId = document.getElementById('sessionId').value.trim();
+            
+            if (!sessionId) {
+                showError('Please enter a session ID');
+                return;
+            }
+
+            // Show loading
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('resultSection').style.display = 'none';
+
+            try {
+                const response = await fetch('https://2oazgeryk9.execute-api.us-east-1.amazonaws.com/prod/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: sessionId })
+                });
+                const result = await response.json();
+                const ecgData = JSON.parse(result.body).first_values; // Extract the ECG values
+                updateDashboard(ecgData, sessionId);
+                
+            } catch (error) {
+                showError('Failed to analyze ECG data: ' + error.message);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+
+        // Initialize when page loads
+        window.onload = function() {
+            initCharts();
+            
+            // Allow Enter key to trigger analysis
+            document.getElementById('sessionId').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    analyzeECG();
+                }
+            });
+        };
+    </script>
+</body>
+</html>
