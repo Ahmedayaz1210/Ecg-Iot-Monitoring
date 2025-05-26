@@ -50,7 +50,7 @@ Security is paramount in medical data. The system implements **AES-256 encryptio
 - The same encryption key is securely stored in **AWS Key Management Service (KMS)** and **AWS Systems Manager Parameter Store** for cloud-side decryption
 
 ### 📡 **Step 3: IoT Data Transmission**
-Encrypted ECG data is transmitted to **AWS IoT Core** using the **MQTT messaging protocol**. The system sends exactly **187 signal samples per transmission** - this specific number matches the input requirements of our trained machine learning model, where each row contains 187 ECG data points with the 188th column being the label (0=Normal, 1=Abnormal).
+Encrypted ECG data is transmitted to **AWS IoT Core** using the **MQTT messaging protocol**. The system sends exactly **187 signal samples per transmission** - this specific number matches the input requirements of our trained deep learning model, where each row contains 187 ECG data points with the 188th column being the label (0=Normal, 1=Abnormal).
 
 ### 🗄️ **Step 4: Cloud Data Storage**
 **AWS Lambda Function 1** receives IoT messages and processes them:
@@ -59,7 +59,7 @@ Encrypted ECG data is transmitted to **AWS IoT Core** using the **MQTT messaging
 - Maintains data integrity and enables scalable retrieval
 - Preserves encryption throughout the storage pipeline
 
-### 🧠 **Step 5: Machine Learning Pipeline**
+### 🧠 **Step 5: Deep Learning Pipeline**
 
 #### **Data Processing & Decryption**
 **AWS Lambda Function 2** orchestrates the analysis pipeline:
@@ -113,7 +113,7 @@ When the CNN model detects abnormal cardiac patterns (prediction ≥ 0.5), the s
 - HTTPS/TLS for all web communications
 - Session-based data isolation
 
-### 🤖 **Advanced Machine Learning**
+### 🤖 ** Deep Learning**
 - Custom 1D CNN architecture optimized for ECG signals
 - Real-time inference with sub-second latency
 - Robust preprocessing pipeline with noise reduction
@@ -163,14 +163,14 @@ When the CNN model detects abnormal cardiac patterns (prediction ≥ 0.5), the s
 - **AWS IoT Core** - Device management and MQTT messaging
 - **AWS Lambda** - Serverless compute for data processing
 - **Amazon DynamoDB** - NoSQL database for encrypted ECG storage
-- **AWS SageMaker** - Machine learning model deployment and inference
+- **AWS SageMaker** - Deep learning model deployment and inference
 - **Amazon S3** - Model artifact storage
 - **AWS KMS** - Encryption key management
 - **AWS Systems Manager Parameter Store** - Secure parameter storage
 - **AWS API Gateway** - RESTful API for dashboard communication
 - **AWS SNS** - Medical alert notification service
 
-### **Machine Learning & Analytics**
+### **Deep Learning & Analytics**
 - **TensorFlow 2.16** - Deep learning framework
 - **1D Convolutional Neural Networks** - ECG pattern recognition
 - **NumPy & SciPy** - Signal processing and numerical computation
@@ -199,11 +199,11 @@ This system addresses critical needs in **cardiac monitoring**:
 
 - **MIT-BIH Arrhythmia Database** - Providing the gold standard ECG dataset for model training
 - **Kaggle Community** - For preprocessing and sharing the heartbeat classification dataset
-- **AWS** - For comprehensive cloud infrastructure and machine learning services
+- **AWS** - For comprehensive cloud infrastructure and deep learning services
 - **TensorFlow Team** - For the powerful deep learning framework
 - **Espressif Systems** - For the versatile ESP32 IoT platform
 - **Analog Devices** - For the AD8232 ECG sensor technology
 
 ---
 
-**⭐ This project demonstrates the power of combining IoT, cloud computing, and machine learning to create life-saving medical technology.**
+**⭐ This project demonstrates the power of combining IoT, cloud computing, and deep learning to create life-saving medical technology.**
