@@ -433,7 +433,9 @@
         }
 
         // Update charts and metrics
-        function updateDashboard(ecgData, sessionId) {
+        function updateDashboard(responseData, sessionId) {
+            const ecgData = responseData.first_values;
+            
             // Update ECG chart
             const timePoints = Array.from({length: ecgData.length}, (_, i) => i);
             ecgChart.data.labels = timePoints;
@@ -461,13 +463,30 @@
             // Show result section
             document.getElementById('resultSection').style.display = 'block';
             
-            // For now, show analysis pending (will be replaced with ML prediction)
+            // Display ML diagnosis
             const resultDisplay = document.getElementById('resultDisplay');
-            resultDisplay.textContent = '📊 ANALYSIS PENDING';
-            resultDisplay.className = 'result-display result-pending';
+            const confidenceElement = document.getElementById('confidence');
             
-            document.getElementById('confidence').textContent = 
-                'ML model integration in progress. Showing signal analysis only.';
+            if (responseData.diagnosis && responseData.prediction !== undefined) {
+                // Show the ML diagnosis
+                const diagnosis = responseData.diagnosis;
+                const confidence = (responseData.prediction * 100).toFixed(1);
+                
+                if (diagnosis === 'Normal') {
+                    resultDisplay.textContent = '✅ NORMAL';
+                    resultDisplay.className = 'result-display result-normal';
+                    confidenceElement.textContent = `ML Confidence: ${confidence}% abnormal - Classified as Normal`;
+                } else {
+                    resultDisplay.textContent = '⚠️ ABNORMAL';
+                    resultDisplay.className = 'result-display result-abnormal';
+                    confidenceElement.textContent = `ML Confidence: ${confidence}% abnormal - Classified as Abnormal`;
+                }
+            } else {
+                // Fallback to pending if ML data not available
+                resultDisplay.textContent = '📊 ANALYSIS PENDING';
+                resultDisplay.className = 'result-display result-pending';
+                confidenceElement.textContent = 'ML model integration in progress. Showing signal analysis only.';
+            }
         }
 
         // Main analysis function
@@ -490,9 +509,11 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ session_id: sessionId })
                 });
+                
                 const result = await response.json();
-                const ecgData = JSON.parse(result.body).first_values; // Extract the ECG values
-                updateDashboard(ecgData, sessionId);
+                const responseData = JSON.parse(result.body);
+                
+                updateDashboard(responseData, sessionId);
                 
             } catch (error) {
                 showError('Failed to analyze ECG data: ' + error.message);
@@ -500,8 +521,6 @@
                 document.getElementById('loading').style.display = 'none';
             }
         }
-
-        
 
         function showError(message) {
             const errorDiv = document.getElementById('error');
