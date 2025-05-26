@@ -1,5 +1,5 @@
 
-# 🫀 Real-time ECG Analysis System with Machine Learning
+# 🫀 Real-time ECG Analysis System with Deep Learning
 
 A comprehensive IoT-based cardiac monitoring system that captures ECG signals from patients, processes them through encrypted cloud pipelines, and provides real-time anomaly detection using deep learning to alert medical professionals of potential cardiac abnormalities.
 
